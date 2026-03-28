@@ -10,26 +10,28 @@ jobs:
     runs-on: windows-latest
     
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
       
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          target: x86_64-pc-windows-msvc
-          override: true
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
       
-      - name: Install deps
+      - name: Install dependencies
         run: |
-          choco install nasm
-          choco install cmake
-          choco install llvm
+          choco install nasm cmake llvm -y
+      
+      - name: Setup vcpkg
+        run: |
+          git clone https://github.com/microsoft/vcpkg C:\vcpkg
+          C:\vcpkg\bootstrap-vcpkg.bat
+          C:\vcpkg\vcpkg.exe install opus:x64-windows-static
       
       - name: Build
+        shell: cmd
         run: |
+          set VCPKG_ROOT=C:\vcpkg
+          set RUSTFLAGS=-C target-feature=+crt-static
           cargo build --release --features flutter
       
       - name: Upload
