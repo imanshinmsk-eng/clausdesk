@@ -36,12 +36,9 @@ jobs:
       - name: Setup vcpkg
         shell: pwsh
         run: |
-          # Проверяем, установлен ли vcpkg
           if (-not (Test-Path "C:\vcpkg")) {
             git clone https://github.com/microsoft/vcpkg C:\vcpkg
             C:\vcpkg\bootstrap-vcpkg.bat
-          } else {
-            Write-Host "vcpkg already installed"
           }
       
       - name: Setup environment variables
@@ -49,55 +46,23 @@ jobs:
         run: |
           Add-Content $env:GITHUB_ENV "VCPKG_ROOT=C:\vcpkg"
           Add-Content $env:GITHUB_ENV "VCPKGRS_DYNAMIC=0"
-          Add-Content $env:GITHUB_ENV "RUST_BACKTRACE=1"
           Add-Content $env:GITHUB_ENV "RUSTFLAGS=-C target-feature=+crt-static"
-          Add-Content $env:GITHUB_ENV "VCPKG_KEEP_ENV_VARS=1"
       
-      - name: Install vcpkg packages (manifest mode)
+      - name: Install vcpkg packages
         shell: pwsh
-        run: |
-          C:\vcpkg\vcpkg.exe install --triplet x64-windows-static
+        run: C:\vcpkg\vcpkg.exe install --triplet x64-windows-static
       
-      - name: Install LLVM and Clang
+      - name: Install LLVM
         shell: pwsh
-        run: |
-          winget install LLVM.LLVM --accept-package-agreements --accept-source-agreements
-          $llvmPath = "C:\Program Files\LLVM\bin"
-          Add-Content $env:GITHUB_PATH $llvmPath
-          Add-Content $env:GITHUB_ENV "LIBCLANG_PATH=$llvmPath"
+        run: winget install LLVM.LLVM --accept-package-agreements --accept-source-agreements
       
       - name: Build RustDesk
         shell: pwsh
-        run: |
-          cargo build --release --target x86_64-pc-windows-msvc --features flutter
+        run: cargo build --release --target x86_64-pc-windows-msvc --features flutter
       
-      - name: Prepare artifacts
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path artifacts
-          $exePaths = @(
-            "target\x86_64-pc-windows-msvc\release\rustdesk.exe",
-            "target\release\rustdesk.exe"
-          )
-          foreach ($exePath in $exePaths) {
-            if (Test-Path $exePath) {
-              Copy-Item $exePath "artifacts\" -Force
-            }
-          }
-          $runNumber = $env:GITHUB_RUN_NUMBER
-          $buildInfo = @"
-Build Date: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss UTC')
-Rust Version: $(rustc --version)
-Target: x86_64-pc-windows-msvc
-Custom Server: 109.173.21.183
-Custom Key: nnlHRQqCMwwW45jVRslqAfMgTfAERCJi1LcZXV96hnc=
-Build Number: $runNumber
-"@
-          $buildInfo | Out-File -FilePath "artifacts\build_info.txt" -Encoding utf8
-      
-      - name: Upload artifacts
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: rustdesk-windows-x64
-          path: artifacts/
+          path: target/x86_64-pc-windows-msvc/release/rustdesk.exe
           retention-days: 30
