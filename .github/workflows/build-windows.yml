@@ -1,94 +1,46 @@
-name: build-windows
+name: Build RustDesk Windows
 
 on:
   workflow_dispatch:
-  push:
-    branches: [ "main" ]
 
 jobs:
   build-windows:
     runs-on: windows-2022
-    timeout-minutes: 120
-
-    env:
-      VCPKG_ROOT: C:\vcpkg
-      VCPKGRS_DYNAMIC: 0
-      RUST_BACKTRACE: 1
-      CARGO_TERM_COLOR: always
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: recursive
-          fetch-depth: 0
 
-      - name: Install Rust toolchain
+      - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
 
-      - name: Install LLVM (libclang)
-        shell: pwsh
+      - name: Install LLVM/Clang
+        shell: powershell
         run: |
-          choco install llvm -y --no-progress
-          echo "LIBCLANG_PATH=C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          echo "PATH=C:\Program Files\LLVM\bin;$env:PATH" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          choco install llvm -y
+          echo "LIBCLANG_PATH=C:\Program Files\LLVM\bin" >> $env:GITHUB_ENV
 
       - name: Setup vcpkg
-        shell: pwsh
+        shell: powershell
         run: |
           git clone https://github.com/microsoft/vcpkg C:\vcpkg
-          C:\vcpkg\bootstrap-vcpkg.bat -disableMetrics
+          C:\vcpkg\bootstrap-vcpkg.bat
+          echo "VCPKG_ROOT=C:\vcpkg" >> $env:GITHUB_ENV
 
-      - name: Configure vcpkg binary cache
-        shell: pwsh
-        run: |
-          echo "VCPKG_DEFAULT_TRIPLET=x64-windows-static" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          echo "VCPKG_FEATURE_FLAGS=manifests,binarycaching" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          echo "VCPKG_BINARY_SOURCES=clear;files,C:\vcpkg_cache,readwrite" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          New-Item -ItemType Directory -Force -Path C:\vcpkg_cache | Out-Null
-
-      - name: Cache cargo registry
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~\.cargo\registry
-            ~\.cargo\git
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-
-      - name: Cache target
-        uses: actions/cache@v4
-        with:
-          path: |
-            target
-            C:\vcpkg_cache
-          key: ${{ runner.os }}-target-${{ hashFiles('**/Cargo.lock', 'vcpkg.json') }}
-          restore-keys: |
-            ${{ runner.os }}-target-
-
-      - name: Install vcpkg dependencies (manifest mode)
-        shell: pwsh
+      - name: Install dependencies
+        shell: powershell
         run: |
           C:\vcpkg\vcpkg.exe install --triplet x64-windows-static
 
-      - name: Build RustDesk (release)
-        shell: pwsh
+      - name: Build RustDesk
+        shell: powershell
         run: |
-          cargo build --release --verbose
+          cargo build --release
 
-      - name: Show release folder
-        shell: pwsh
-        run: |
-          Get-ChildItem -Path target\release -File | Select-Object Name,Length
-
-      - name: Upload built EXE files
+      - name: Upload EXE
         uses: actions/upload-artifact@v4
         with:
-          name: rustdesk-release
-          path: |
-            target/release/*.exe
-            target/release/*.dll
-          if-no-files-found: warn
+          name: rustdesk-windows
+          path: target/release/*.exe
