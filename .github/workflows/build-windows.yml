@@ -8,8 +8,6 @@ on:
 jobs:
   build-windows:
     runs-on: windows-latest
-    
-    # Таймаут для предотвращения зависаний
     timeout-minutes: 60
     
     steps:
@@ -35,7 +33,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
       
-      - name: Install vcpkg
+      - name: Setup vcpkg
         shell: pwsh
         run: |
           # Проверяем, установлен ли vcpkg
@@ -46,59 +44,37 @@ jobs:
             Write-Host "vcpkg already installed"
           }
       
-      - name: Install vcpkg packages
-        shell: pwsh
-        run: |
-          # Устанавливаем необходимые пакеты для RustDesk
-          C:\vcpkg\vcpkg.exe install --triplet x64-windows-static `
-            libvpx `
-            opus `
-            aom `
-            libyuv `
-            libvmaf `
-            sdl2 `
-            ffmpeg `
-            portaudio
-      
       - name: Setup environment variables
         shell: pwsh
         run: |
-          # Пути к vcpkg
           Add-Content $env:GITHUB_ENV "VCPKG_ROOT=C:\vcpkg"
           Add-Content $env:GITHUB_ENV "VCPKGRS_DYNAMIC=0"
           Add-Content $env:GITHUB_ENV "RUST_BACKTRACE=1"
           Add-Content $env:GITHUB_ENV "RUSTFLAGS=-C target-feature=+crt-static"
-          
-          # Пути к библиотекам
-          Add-Content $env:GITHUB_ENV "OPENSSL_DIR=C:\vcpkg\installed\x64-windows-static"
-          Add-Content $env:GITHUB_ENV "OPENSSL_STATIC=1"
+          Add-Content $env:GITHUB_ENV "VCPKG_KEEP_ENV_VARS=1"
+      
+      - name: Install vcpkg packages (manifest mode)
+        shell: pwsh
+        run: |
+          # В manifest mode просто запускаем vcpkg install без аргументов
+          # vcpkg сам прочитает зависимости из vcpkg.json
+          C:\vcpkg\vcpkg.exe install --triplet x64-windows-static
       
       - name: Install LLVM and Clang
         shell: pwsh
         run: |
-          # Устанавливаем LLVM через winget (более надежно, чем choco)
+          # Устанавливаем LLVM через winget
           winget install LLVM.LLVM --accept-package-agreements --accept-source-agreements
           
-          # Добавляем в PATH
           $llvmPath = "C:\Program Files\LLVM\bin"
           Add-Content $env:GITHUB_PATH $llvmPath
           Add-Content $env:GITHUB_ENV "LIBCLANG_PATH=$llvmPath"
       
-      - name: Install additional Windows dependencies
-        shell: pwsh
-        run: |
-          # Устанавливаем дополнительные инструменты сборки
-          cargo install cargo-vcpkg
-          cargo install cargo-make
-      
-      - name: Build RustDesk (with optimizations)
+      - name: Build RustDesk
         shell: pwsh
         run: |
           # Сборка с оптимизациями для Windows
           cargo build --release --target x86_64-pc-windows-msvc --features flutter
-          
-          # Если нужна минимальная версия без GUI:
-          # cargo build --release --target x86_64-pc-windows-msvc
       
       - name: Prepare artifacts
         shell: pwsh
@@ -106,26 +82,27 @@ jobs:
           # Создаем папку для артефактов
           New-Item -ItemType Directory -Force -Path artifacts
           
-          # Копируем все exe файлы
-          if (Test-Path "target\release\rustdesk.exe") {
-            Copy-Item "target\release\rustdesk.exe" "artifacts\"
-          }
-          if (Test-Path "target\x86_64-pc-windows-msvc\release\rustdesk.exe") {
-            Copy-Item "target\x86_64-pc-windows-msvc\release\rustdesk.exe" "artifacts\"
-          }
+          # Ищем и копируем exe файлы
+          $exePaths = @(
+            "target\x86_64-pc-windows-msvc\release\rustdesk.exe",
+            "target\release\rustdesk.exe"
+          )
           
-          # Копируем дополнительные файлы если есть
-          if (Test-Path "target\release\*.dll") {
-            Copy-Item "target\release\*.dll" "artifacts\"
+          foreach ($exePath in $exePaths) {
+            if (Test-Path $exePath) {
+              Copy-Item $exePath "artifacts\" -Force
+              Write-Host "Found and copied: $exePath"
+            }
           }
           
           # Создаем информацию о сборке
           $buildInfo = @"
-          Build Date: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
-          Rust Version: $(rustc --version)
-          Target: x86_64-pc-windows-msvc
-          Custom Server: 109.173.21.183
-          "@
+Build Date: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss UTC')
+Rust Version: $(rustc --version)
+Target: x86_64-pc-windows-msvc
+Custom Server: 109.173.21.183
+Build Number: ${{ github.run_number }}
+"@
           $buildInfo | Out-File -FilePath "artifacts\build_info.txt" -Encoding utf8
       
       - name: Upload artifacts
@@ -133,13 +110,4 @@ jobs:
         with:
           name: rustdesk-windows-x64
           path: artifacts/
-          retention-days: 30
-      
-      - name: Upload EXE directly (backup)
-        uses: actions/upload-artifact@v4
-        with:
-          name: rustdesk-release
-          path: |
-            target/release/*.exe
-            target/x86_64-pc-windows-msvc/release/*.exe
           retention-days: 30
