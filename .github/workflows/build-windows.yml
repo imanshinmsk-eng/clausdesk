@@ -6,7 +6,7 @@ on:
     branches: [ "main", "master", "rustdesktop" ]
 
 jobs:
-  build-windows:
+  build:
     runs-on: windows-latest
     
     steps:
@@ -15,17 +15,25 @@ jobs:
         with:
           submodules: recursive
       
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: x86_64-pc-windows-msvc
+          override: true
       
-      - name: Build with RustDesk script
-        shell: pwsh
+      - name: Install deps
         run: |
-          # Используем официальный скрипт сборки
-          ./build.py --target x86_64-pc-windows-msvc --features flutter
+          choco install nasm
+          choco install cmake
+          choco install llvm
+      
+      - name: Build
+        run: |
+          cargo build --release --features flutter
       
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: rustdesk-windows
-          path: target/x86_64-pc-windows-msvc/release/rustdesk.exe
+          name: rustdesk
+          path: target/release/rustdesk.exe
