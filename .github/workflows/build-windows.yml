@@ -3,56 +3,143 @@ name: build-windows
 on:
   workflow_dispatch:
   push:
-    branches: [ "main", "master" ]
+    branches: [ "main", "master", "rustdesktop" ]
 
 jobs:
   build-windows:
     runs-on: windows-latest
-
+    
+    # Таймаут для предотвращения зависаний
+    timeout-minutes: 60
+    
     steps:
-      - name: Checkout
+      - name: Checkout code
         uses: actions/checkout@v4
         with:
           submodules: recursive
-
+          fetch-depth: 0
+      
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
-
-      - name: Setup vcpkg
+        with:
+          targets: x86_64-pc-windows-msvc
+      
+      - name: Cache cargo registry
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+      
+      - name: Install vcpkg
         shell: pwsh
         run: |
-          git clone https://github.com/microsoft/vcpkg C:\vcpkg
-          C:\vcpkg\bootstrap-vcpkg.bat
-
-      - name: Set environment variables
+          # Проверяем, установлен ли vcpkg
+          if (-not (Test-Path "C:\vcpkg")) {
+            git clone https://github.com/microsoft/vcpkg C:\vcpkg
+            C:\vcpkg\bootstrap-vcpkg.bat
+          } else {
+            Write-Host "vcpkg already installed"
+          }
+      
+      - name: Install vcpkg packages
         shell: pwsh
         run: |
-          echo "VCPKG_ROOT=C:\vcpkg" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          echo "VCPKGRS_DYNAMIC=0" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          echo "RUST_BACKTRACE=1" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
-      - name: Install dependencies
+          # Устанавливаем необходимые пакеты для RustDesk
+          C:\vcpkg\vcpkg.exe install --triplet x64-windows-static `
+            libvpx `
+            opus `
+            aom `
+            libyuv `
+            libvmaf `
+            sdl2 `
+            ffmpeg `
+            portaudio
+      
+      - name: Setup environment variables
         shell: pwsh
         run: |
-          C:\vcpkg\vcpkg.exe install --triplet x64-windows-static
-
-      - name: Install LLVM
+          # Пути к vcpkg
+          Add-Content $env:GITHUB_ENV "VCPKG_ROOT=C:\vcpkg"
+          Add-Content $env:GITHUB_ENV "VCPKGRS_DYNAMIC=0"
+          Add-Content $env:GITHUB_ENV "RUST_BACKTRACE=1"
+          Add-Content $env:GITHUB_ENV "RUSTFLAGS=-C target-feature=+crt-static"
+          
+          # Пути к библиотекам
+          Add-Content $env:GITHUB_ENV "OPENSSL_DIR=C:\vcpkg\installed\x64-windows-static"
+          Add-Content $env:GITHUB_ENV "OPENSSL_STATIC=1"
+      
+      - name: Install LLVM and Clang
         shell: pwsh
         run: |
-          choco install llvm -y
-
-      - name: Set LIBCLANG_PATH
+          # Устанавливаем LLVM через winget (более надежно, чем choco)
+          winget install LLVM.LLVM --accept-package-agreements --accept-source-agreements
+          
+          # Добавляем в PATH
+          $llvmPath = "C:\Program Files\LLVM\bin"
+          Add-Content $env:GITHUB_PATH $llvmPath
+          Add-Content $env:GITHUB_ENV "LIBCLANG_PATH=$llvmPath"
+      
+      - name: Install additional Windows dependencies
         shell: pwsh
         run: |
-          echo "LIBCLANG_PATH=C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
-      - name: Build RustDesk
+          # Устанавливаем дополнительные инструменты сборки
+          cargo install cargo-vcpkg
+          cargo install cargo-make
+      
+      - name: Build RustDesk (with optimizations)
         shell: pwsh
         run: |
-          cargo build --release
-
-      - name: Upload EXE
+          # Сборка с оптимизациями для Windows
+          cargo build --release --target x86_64-pc-windows-msvc --features flutter
+          
+          # Если нужна минимальная версия без GUI:
+          # cargo build --release --target x86_64-pc-windows-msvc
+      
+      - name: Prepare artifacts
+        shell: pwsh
+        run: |
+          # Создаем папку для артефактов
+          New-Item -ItemType Directory -Force -Path artifacts
+          
+          # Копируем все exe файлы
+          if (Test-Path "target\release\rustdesk.exe") {
+            Copy-Item "target\release\rustdesk.exe" "artifacts\"
+          }
+          if (Test-Path "target\x86_64-pc-windows-msvc\release\rustdesk.exe") {
+            Copy-Item "target\x86_64-pc-windows-msvc\release\rustdesk.exe" "artifacts\"
+          }
+          
+          # Копируем дополнительные файлы если есть
+          if (Test-Path "target\release\*.dll") {
+            Copy-Item "target\release\*.dll" "artifacts\"
+          }
+          
+          # Создаем информацию о сборке
+          $buildInfo = @"
+          Build Date: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+          Rust Version: $(rustc --version)
+          Target: x86_64-pc-windows-msvc
+          Custom Server: 109.173.21.183
+          "@
+          $buildInfo | Out-File -FilePath "artifacts\build_info.txt" -Encoding utf8
+      
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: rustdesk-windows-x64
+          path: artifacts/
+          retention-days: 30
+      
+      - name: Upload EXE directly (backup)
         uses: actions/upload-artifact@v4
         with:
           name: rustdesk-release
-          path: target/release/*.exe
+          path: |
+            target/release/*.exe
+            target/x86_64-pc-windows-msvc/release/*.exe
+          retention-days: 30
