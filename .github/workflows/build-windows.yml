@@ -33,37 +33,15 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
       
-      - name: Setup vcpkg (classic mode)
+      - name: Setup vcpkg
         shell: pwsh
         run: |
-          # Временно переименовываем vcpkg.json для классического режима
-          if (Test-Path "vcpkg.json") {
-            Move-Item "vcpkg.json" "vcpkg.json.bak"
-            Write-Host "Temporarily renamed vcpkg.json to vcpkg.json.bak"
-          }
-          
-          # Устанавливаем vcpkg
-          git clone https://github.com/microsoft/vcpkg C:\vcpkg
-          C:\vcpkg\bootstrap-vcpkg.bat
-      
-      - name: Install vcpkg packages (classic mode)
-        shell: pwsh
-        run: |
-          # Устанавливаем пакеты по отдельности
-          C:\vcpkg\vcpkg.exe install libvpx:x64-windows-static
-          C:\vcpkg\vcpkg.exe install opus:x64-windows-static
-          C:\vcpkg\vcpkg.exe install aom:x64-windows-static
-          C:\vcpkg\vcpkg.exe install libyuv:x64-windows-static
-          C:\vcpkg\vcpkg.exe install sdl2:x64-windows-static
-          C:\vcpkg\vcpkg.exe install ffmpeg:x64-windows-static
-          C:\vcpkg\vcpkg.exe install portaudio:x64-windows-static
-      
-      - name: Restore vcpkg.json
-        shell: pwsh
-        run: |
-          if (Test-Path "vcpkg.json.bak") {
-            Move-Item "vcpkg.json.bak" "vcpkg.json" -Force
-            Write-Host "Restored vcpkg.json"
+          # Проверяем, установлен ли vcpkg
+          if (-not (Test-Path "C:\vcpkg")) {
+            git clone https://github.com/microsoft/vcpkg C:\vcpkg
+            C:\vcpkg\bootstrap-vcpkg.bat
+          } else {
+            Write-Host "vcpkg already installed"
           }
       
       - name: Setup environment variables
@@ -73,9 +51,14 @@ jobs:
           Add-Content $env:GITHUB_ENV "VCPKGRS_DYNAMIC=0"
           Add-Content $env:GITHUB_ENV "RUST_BACKTRACE=1"
           Add-Content $env:GITHUB_ENV "RUSTFLAGS=-C target-feature=+crt-static"
-          Add-Content $env:GITHUB_PATH "C:\vcpkg\installed\x64-windows-static\bin"
+          Add-Content $env:GITHUB_ENV "VCPKG_KEEP_ENV_VARS=1"
       
-      - name: Install LLVM
+      - name: Install vcpkg packages (manifest mode)
+        shell: pwsh
+        run: |
+          C:\vcpkg\vcpkg.exe install --triplet x64-windows-static
+      
+      - name: Install LLVM and Clang
         shell: pwsh
         run: |
           winget install LLVM.LLVM --accept-package-agreements --accept-source-agreements
@@ -92,18 +75,22 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path artifacts
-          
-          if (Test-Path "target\x86_64-pc-windows-msvc\release\rustdesk.exe") {
-            Copy-Item "target\x86_64-pc-windows-msvc\release\rustdesk.exe" "artifacts\" -Force
+          $exePaths = @(
+            "target\x86_64-pc-windows-msvc\release\rustdesk.exe",
+            "target\release\rustdesk.exe"
+          )
+          foreach ($exePath in $exePaths) {
+            if (Test-Path $exePath) {
+              Copy-Item $exePath "artifacts\" -Force
+            }
           }
-          
-          $runNumber = "${{ github.run_number }}"
-          
+          $runNumber = $env:GITHUB_RUN_NUMBER
           $buildInfo = @"
 Build Date: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss UTC')
 Rust Version: $(rustc --version)
 Target: x86_64-pc-windows-msvc
 Custom Server: 109.173.21.183
+Custom Key: nnlHRQqCMwwW45jVRslqAfMgTfAERCJi1LcZXV96hnc=
 Build Number: $runNumber
 "@
           $buildInfo | Out-File -FilePath "artifacts\build_info.txt" -Encoding utf8
