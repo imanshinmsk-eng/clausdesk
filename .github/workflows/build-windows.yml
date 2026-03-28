@@ -97,12 +97,14 @@ jobs:
             Copy-Item "target\x86_64-pc-windows-msvc\release\rustdesk.exe" "artifacts\" -Force
           }
           
+          $runNumber = "${{ github.run_number }}"
+          
           $buildInfo = @"
 Build Date: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss UTC')
 Rust Version: $(rustc --version)
 Target: x86_64-pc-windows-msvc
 Custom Server: 109.173.21.183
-Build Number: ${{ github.run_number }}
+Build Number: $runNumber
 "@
           $buildInfo | Out-File -FilePath "artifacts\build_info.txt" -Encoding utf8
       
