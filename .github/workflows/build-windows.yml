@@ -33,13 +33,20 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
       
-      - name: Cache vcpkg
-        uses: actions/cache@v3
-        with:
-          path: C:\vcpkg\installed
-          key: ${{ runner.os }}-vcpkg-${{ hashFiles('**/vcpkg.json') }}
-          restore-keys: |
-            ${{ runner.os }}-vcpkg-
+      - name: Install NASM
+        shell: pwsh
+        run: |
+          winget install NASM.NASM --accept-package-agreements --accept-source-agreements
+          $nasmPath = "C:\Program Files\NASM"
+          Add-Content $env:GITHUB_PATH $nasmPath
+      
+      - name: Remove vcpkg.json temporarily
+        shell: pwsh
+        run: |
+          if (Test-Path "vcpkg.json") {
+            Move-Item "vcpkg.json" "vcpkg.json.bak"
+            Write-Host "Temporarily renamed vcpkg.json"
+          }
       
       - name: Setup vcpkg
         shell: pwsh
@@ -47,8 +54,6 @@ jobs:
           if (-not (Test-Path "C:\vcpkg")) {
             git clone https://github.com/microsoft/vcpkg C:\vcpkg
             C:\vcpkg\bootstrap-vcpkg.bat
-          } else {
-            Write-Host "vcpkg already installed"
           }
       
       - name: Setup environment variables
@@ -56,18 +61,27 @@ jobs:
         run: |
           Add-Content $env:GITHUB_ENV "VCPKG_ROOT=C:\vcpkg"
           Add-Content $env:GITHUB_ENV "VCPKGRS_DYNAMIC=0"
-          Add-Content $env:GITHUB_ENV "RUST_BACKTRACE=1"
           Add-Content $env:GITHUB_ENV "RUSTFLAGS=-C target-feature=+crt-static"
-          Add-Content $env:GITHUB_ENV "VCPKG_KEEP_ENV_VARS=1"
       
-      - name: Install vcpkg packages (manifest mode)
+      - name: Install vcpkg packages
         shell: pwsh
         run: |
-          # Для manifest mode просто запускаем vcpkg install
-          # Он автоматически прочитает зависимости из vcpkg.json
-          C:\vcpkg\vcpkg.exe install --triplet x64-windows-static
+          C:\vcpkg\vcpkg.exe install libvpx:x64-windows-static
+          C:\vcpkg\vcpkg.exe install opus:x64-windows-static
+          C:\vcpkg\vcpkg.exe install aom:x64-windows-static
+          C:\vcpkg\vcpkg.exe install libyuv:x64-windows-static
+          C:\vcpkg\vcpkg.exe install sdl2:x64-windows-static
+          C:\vcpkg\vcpkg.exe install ffmpeg:x64-windows-static
+          C:\vcpkg\vcpkg.exe install portaudio:x64-windows-static
       
-      - name: Install LLVM and Clang
+      - name: Restore vcpkg.json
+        shell: pwsh
+        run: |
+          if (Test-Path "vcpkg.json.bak") {
+            Move-Item "vcpkg.json.bak" "vcpkg.json" -Force
+          }
+      
+      - name: Install LLVM
         shell: pwsh
         run: |
           winget install LLVM.LLVM --accept-package-agreements --accept-source-agreements
