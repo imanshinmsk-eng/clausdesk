@@ -29,26 +29,26 @@ macro_rules! my_println{
 /// If it returns [`Some`], then the process will continue, and flutter gui will be started.
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn core_main() -> Option<Vec<String>> {
-        // === HARD CODED CUSTOM SERVER ===
-    let options = crate::ipc::get_options();
-
-    if options
-        .get("custom-rendezvous-server")
-        .unwrap_or(&"".to_string())
-        .is_empty()
-    {
-        crate::ui_interface::set_option(
-            "custom-rendezvous-server".into(),
-            "109.173.21.183".to_string(),
-        );
-        crate::ui_interface::set_option(
-            "relay-server".into(),
-            "109.173.21.183".to_string(),
-        );
-        crate::ui_interface::set_option(
-            "key".into(),
-            "nnlHRQqCMwwW45jVRslqAfMgTfAERCJi1LcZXV96hnc=".to_string(),
-        );
+        // ============================================
+    // HARD CODED CUSTOM SERVER CONFIGURATION
+    // ============================================
+    // Принудительно устанавливаем настройки сервера ДО их чтения
+    crate::ui_interface::set_option(
+        "custom-rendezvous-server".into(),
+        "109.173.21.183".to_string(),
+    );
+    crate::ui_interface::set_option(
+        "relay-server".into(),
+        "109.173.21.183".to_string(),
+    );
+    crate::ui_interface::set_option(
+        "key".into(),
+        "nnlHRQqCMwwW45jVRslqAfMgTfAERCJi1LcZXV96hnc=".to_string(),
+    );
+    
+    // Сохраняем настройки в конфиг
+    if let Err(e) = crate::ui_interface::save_options() {
+        log::error!("Failed to save custom server settings: {}", e);
     }
     if !crate::common::global_init() {
         return None;
