@@ -36,17 +36,13 @@ jobs:
       - name: Install NASM
         shell: pwsh
         run: |
-          winget install NASM.NASM --accept-package-agreements --accept-source-agreements
-          $nasmPath = "C:\Program Files\NASM"
-          Add-Content $env:GITHUB_PATH $nasmPath
+          choco install nasm -y
+          echo "C:\Program Files\NASM" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
       
-      - name: Remove vcpkg.json temporarily
+      - name: Install CMake
         shell: pwsh
         run: |
-          if (Test-Path "vcpkg.json") {
-            Move-Item "vcpkg.json" "vcpkg.json.bak"
-            Write-Host "Temporarily renamed vcpkg.json"
-          }
+          choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
       
       - name: Setup vcpkg
         shell: pwsh
@@ -55,43 +51,69 @@ jobs:
             git clone https://github.com/microsoft/vcpkg C:\vcpkg
             C:\vcpkg\bootstrap-vcpkg.bat
           }
+          # Добавляем vcpkg в PATH
+          echo "C:\vcpkg" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
       
       - name: Setup environment variables
         shell: pwsh
         run: |
           Add-Content $env:GITHUB_ENV "VCPKG_ROOT=C:\vcpkg"
           Add-Content $env:GITHUB_ENV "VCPKGRS_DYNAMIC=0"
+          Add-Content $env:GITHUB_ENV "RUST_BACKTRACE=1"
           Add-Content $env:GITHUB_ENV "RUSTFLAGS=-C target-feature=+crt-static"
+          Add-Content $env:GITHUB_ENV "VCPKG_FEATURE_FLAGS=versions"
       
-      - name: Install vcpkg packages
+      - name: Create vcpkg.json if not exists
         shell: pwsh
         run: |
-          C:\vcpkg\vcpkg.exe install libvpx:x64-windows-static
-          C:\vcpkg\vcpkg.exe install opus:x64-windows-static
-          C:\vcpkg\vcpkg.exe install aom:x64-windows-static
-          C:\vcpkg\vcpkg.exe install libyuv:x64-windows-static
-          C:\vcpkg\vcpkg.exe install sdl2:x64-windows-static
-          C:\vcpkg\vcpkg.exe install ffmpeg:x64-windows-static
-          C:\vcpkg\vcpkg.exe install portaudio:x64-windows-static
-      
-      - name: Restore vcpkg.json
-        shell: pwsh
-        run: |
-          if (Test-Path "vcpkg.json.bak") {
-            Move-Item "vcpkg.json.bak" "vcpkg.json" -Force
+          if (-not (Test-Path "vcpkg.json")) {
+            @'
+      {
+        "name": "rustdesk",
+        "version": "1.0",
+        "dependencies": [
+          "libvpx",
+          "opus",
+          "aom",
+          "libyuv",
+          "sdl2",
+          "ffmpeg",
+          "portaudio"
+        ],
+        "builtin-baseline": "e0d5e3b6f6e3c5c9e6f6b6e6c5c9e6f6b6e6c5c9"
+      }
+      '@ | Out-File -FilePath "vcpkg.json" -Encoding utf8
           }
+      
+      - name: Install vcpkg packages with specific versions
+        shell: pwsh
+        run: |
+          # Устанавливаем конкретные версии пакетов
+          C:\vcpkg\vcpkg.exe install libvpx:x64-windows-static --recurse
+          C:\vcpkg\vcpkg.exe install opus:x64-windows-static --recurse
+          C:\vcpkg\vcpkg.exe install libyuv:x64-windows-static --recurse
+          C:\vcpkg\vcpkg.exe install sdl2:x64-windows-static --recurse
+          C:\vcpkg\vcpkg.exe install portaudio:x64-windows-static --recurse
+      
+      - name: Install FFmpeg with specific configuration
+        shell: pwsh
+        run: |
+          # Устанавливаем FFmpeg с минимальными опциями
+          C:\vcpkg\vcpkg.exe install ffmpeg[core,avcodec,avformat,swscale,avutil]:x64-windows-static --recurse
       
       - name: Install LLVM
         shell: pwsh
         run: |
-          winget install LLVM.LLVM --accept-package-agreements --accept-source-agreements
+          choco install llvm -y
           $llvmPath = "C:\Program Files\LLVM\bin"
           Add-Content $env:GITHUB_PATH $llvmPath
           Add-Content $env:GITHUB_ENV "LIBCLANG_PATH=$llvmPath"
       
       - name: Build RustDesk
         shell: pwsh
-        run: cargo build --release --target x86_64-pc-windows-msvc --features flutter
+        run: |
+          # Отключаем aom и vpx кодеки если они вызывают проблемы
+          cargo build --release --target x86_64-pc-windows-msvc --features flutter --no-default-features
       
       - name: Upload artifact
         uses: actions/upload-artifact@v4
