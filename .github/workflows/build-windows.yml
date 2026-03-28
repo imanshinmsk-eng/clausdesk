@@ -33,15 +33,37 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
       
-      - name: Setup vcpkg
+      - name: Setup vcpkg (classic mode)
         shell: pwsh
         run: |
-          # Проверяем, установлен ли vcpkg
-          if (-not (Test-Path "C:\vcpkg")) {
-            git clone https://github.com/microsoft/vcpkg C:\vcpkg
-            C:\vcpkg\bootstrap-vcpkg.bat
-          } else {
-            Write-Host "vcpkg already installed"
+          # Временно переименовываем vcpkg.json для классического режима
+          if (Test-Path "vcpkg.json") {
+            Move-Item "vcpkg.json" "vcpkg.json.bak"
+            Write-Host "Temporarily renamed vcpkg.json to vcpkg.json.bak"
+          }
+          
+          # Устанавливаем vcpkg
+          git clone https://github.com/microsoft/vcpkg C:\vcpkg
+          C:\vcpkg\bootstrap-vcpkg.bat
+      
+      - name: Install vcpkg packages (classic mode)
+        shell: pwsh
+        run: |
+          # Устанавливаем пакеты по отдельности
+          C:\vcpkg\vcpkg.exe install libvpx:x64-windows-static
+          C:\vcpkg\vcpkg.exe install opus:x64-windows-static
+          C:\vcpkg\vcpkg.exe install aom:x64-windows-static
+          C:\vcpkg\vcpkg.exe install libyuv:x64-windows-static
+          C:\vcpkg\vcpkg.exe install sdl2:x64-windows-static
+          C:\vcpkg\vcpkg.exe install ffmpeg:x64-windows-static
+          C:\vcpkg\vcpkg.exe install portaudio:x64-windows-static
+      
+      - name: Restore vcpkg.json
+        shell: pwsh
+        run: |
+          if (Test-Path "vcpkg.json.bak") {
+            Move-Item "vcpkg.json.bak" "vcpkg.json" -Force
+            Write-Host "Restored vcpkg.json"
           }
       
       - name: Setup environment variables
@@ -51,21 +73,12 @@ jobs:
           Add-Content $env:GITHUB_ENV "VCPKGRS_DYNAMIC=0"
           Add-Content $env:GITHUB_ENV "RUST_BACKTRACE=1"
           Add-Content $env:GITHUB_ENV "RUSTFLAGS=-C target-feature=+crt-static"
-          Add-Content $env:GITHUB_ENV "VCPKG_KEEP_ENV_VARS=1"
+          Add-Content $env:GITHUB_PATH "C:\vcpkg\installed\x64-windows-static\bin"
       
-      - name: Install vcpkg packages (manifest mode)
+      - name: Install LLVM
         shell: pwsh
         run: |
-          # В manifest mode просто запускаем vcpkg install без аргументов
-          # vcpkg сам прочитает зависимости из vcpkg.json
-          C:\vcpkg\vcpkg.exe install --triplet x64-windows-static
-      
-      - name: Install LLVM and Clang
-        shell: pwsh
-        run: |
-          # Устанавливаем LLVM через winget
           winget install LLVM.LLVM --accept-package-agreements --accept-source-agreements
-          
           $llvmPath = "C:\Program Files\LLVM\bin"
           Add-Content $env:GITHUB_PATH $llvmPath
           Add-Content $env:GITHUB_ENV "LIBCLANG_PATH=$llvmPath"
@@ -73,35 +86,22 @@ jobs:
       - name: Build RustDesk
         shell: pwsh
         run: |
-          # Сборка с оптимизациями для Windows
           cargo build --release --target x86_64-pc-windows-msvc --features flutter
       
       - name: Prepare artifacts
         shell: pwsh
         run: |
-          # Создаем папку для артефактов
           New-Item -ItemType Directory -Force -Path artifacts
           
-          # Ищем и копируем exe файлы
-          $exePaths = @(
-            "target\x86_64-pc-windows-msvc\release\rustdesk.exe",
-            "target\release\rustdesk.exe"
-          )
-          
-          foreach ($exePath in $exePaths) {
-            if (Test-Path $exePath) {
-              Copy-Item $exePath "artifacts\" -Force
-              Write-Host "Found and copied: $exePath"
-            }
+          if (Test-Path "target\x86_64-pc-windows-msvc\release\rustdesk.exe") {
+            Copy-Item "target\x86_64-pc-windows-msvc\release\rustdesk.exe" "artifacts\" -Force
           }
           
-          # Создаем информацию о сборке
           $buildInfo = @"
 Build Date: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss UTC')
 Rust Version: $(rustc --version)
 Target: x86_64-pc-windows-msvc
 Custom Server: 109.173.21.183
-Custom Key: nnlHRQqCMwwW45jVRslqAfMgTfAERCJi1LcZXV96hnc=
 Build Number: ${{ github.run_number }}
 "@
           $buildInfo | Out-File -FilePath "artifacts\build_info.txt" -Encoding utf8
