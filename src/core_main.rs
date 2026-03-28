@@ -46,10 +46,6 @@ pub fn core_main() -> Option<Vec<String>> {
             "109.173.21.183".to_string(),
         );
         crate::ui_interface::set_option(
-            "api-server".into(),
-            "http://109.173.21.183".to_string(),
-        );
-        crate::ui_interface::set_option(
             "key".into(),
             "nnlHRQqCMwwW45jVRslqAfMgTfAERCJi1LcZXV96hnc=".to_string(),
         );
